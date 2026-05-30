@@ -1,0 +1,643 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
+
+enum PermissionScope {
+  PLATFORM
+  TENANT
+  COMPANY
+  BRANCH
+}
+
+enum AccountNature {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+enum DebitCredit {
+  DEBIT
+  CREDIT
+}
+
+enum VoucherStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum LedgerType {
+  GENERAL
+  CASH
+  BANK
+  CAPITAL
+  CUSTOMER
+  VENDOR
+  TAX
+  EXPENSE
+  INCOME
+}
+
+enum StockMovementType {
+  OPENING
+  PURCHASE
+  SALE
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  TRANSFER_IN
+  TRANSFER_OUT
+  PRODUCTION_IN
+  CONSUMPTION
+}
+
+enum PurchaseStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum SalesStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+model Tenant {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  users     User[]
+  roles     Role[]
+  companies Company[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("tenants")
+}
+
+model Company {
+  id                 String          @id @default(uuid())
+  tenantId           String
+  tenant             Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name               String
+  legalName          String?
+  code               String
+  gstin              String?
+  pan                String?
+  email              String?
+  phone              String?
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  state              String?
+  country            String          @default("India")
+  pincode            String?
+  financialYearStart DateTime
+  booksStartDate     DateTime
+  isActive           Boolean         @default(true)
+  branches           Branch[]
+  accountGroups      AccountGroup[]
+  ledgers            Ledger[]
+  vouchers           Voucher[]
+  voucherTypes       VoucherType[]
+  voucherSeries      VoucherSeries[]
+  units              Unit[]
+  itemGroups         ItemGroup[]
+  items              Item[]
+  vendors            Vendor[]
+  purchaseInvoices   PurchaseInvoice[]
+  customers          Customer[]
+  salesInvoices      SalesInvoice[]
+  taxRates           TaxRate[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  deletedAt          DateTime?
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+  @@map("companies")
+}
+
+model TaxRate {
+  id        String    @id @default(uuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  code      String
+  rate      Decimal   @db.Decimal(5, 2)
+  cgstRate  Decimal   @default(0) @db.Decimal(5, 2)
+  sgstRate  Decimal   @default(0) @db.Decimal(5, 2)
+  igstRate  Decimal   @default(0) @db.Decimal(5, 2)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, code])
+  @@map("tax_rates")
+}
+
+model VoucherType {
+  id          String    @id @default(uuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  code        String
+  category    String
+  prefix      String
+  nextNumber  Int       @default(1)
+  padding     Int       @default(5)
+  suffix      String?
+  isSystem    Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([companyId, code])
+  @@map("voucher_types")
+}
+
+model Branch {
+  id           String      @id @default(uuid())
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name         String
+  code         String
+  gstin        String?
+  email        String?
+  phone        String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  country      String      @default("India")
+  pincode      String?
+  isPrimary    Boolean     @default(false)
+  isActive     Boolean     @default(true)
+  warehouses   Warehouse[]
+  vouchers     Voucher[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("branches")
+}
+
+model AccountGroup {
+  id        String        @id @default(uuid())
+  companyId String
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    AccountGroup? @relation("AccountGroupHierarchy", fields: [parentId], references: [id])
+  children  AccountGroup[] @relation("AccountGroupHierarchy")
+  name      String
+  code      String
+  nature    AccountNature
+  isSystem  Boolean       @default(false)
+  ledgers   Ledger[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, code])
+  @@index([companyId, nature])
+  @@map("account_groups")
+}
+
+model Ledger {
+  id             String        @id @default(uuid())
+  companyId      String
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  groupId        String
+  group          AccountGroup  @relation(fields: [groupId], references: [id])
+  name           String
+  code           String
+  ledgerType     LedgerType    @default(GENERAL)
+  openingBalance Decimal       @default(0) @db.Decimal(18, 2)
+  openingType    DebitCredit   @default(DEBIT)
+  bankName       String?
+  bankAccountNo  String?
+  bankIfsc       String?
+  bankBranch     String?
+  gstin          String?
+  pan            String?
+  email          String?
+  phone          String?
+  isActive       Boolean       @default(true)
+  voucherLines   VoucherLine[]
+  vendors        Vendor[]
+  customers      Customer[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("ledgers")
+}
+
+model Voucher {
+  id          String        @id @default(uuid())
+  companyId   String
+  company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branchId    String?
+  branch      Branch?       @relation(fields: [branchId], references: [id])
+  voucherType String
+  voucherNo   String
+  voucherDate DateTime
+  narration   String?
+  status      VoucherStatus @default(POSTED)
+  lines       VoucherLine[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([companyId, voucherType, voucherNo])
+  @@index([companyId, voucherDate])
+  @@map("vouchers")
+}
+
+model VoucherLine {
+  id        String      @id @default(uuid())
+  voucherId String
+  voucher   Voucher     @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  ledgerId  String
+  ledger    Ledger      @relation(fields: [ledgerId], references: [id])
+  type      DebitCredit
+  amount    Decimal     @db.Decimal(18, 2)
+  narration String?
+  createdAt DateTime    @default(now())
+
+  @@index([ledgerId])
+  @@index([voucherId])
+  @@map("voucher_lines")
+}
+
+model Warehouse {
+  id           String    @id @default(uuid())
+  branchId     String
+  branch       Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name         String
+  code         String
+  addressLine1 String?
+  city         String?
+  state        String?
+  isPrimary    Boolean   @default(false)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+  stockMovements StockMovement[]
+  purchaseInvoices PurchaseInvoice[]
+  salesInvoices SalesInvoice[]
+
+  @@unique([branchId, code])
+  @@index([branchId, isActive])
+  @@map("warehouses")
+}
+
+model Unit {
+  id        String    @id @default(uuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  code      String
+  decimalPlaces Int   @default(2)
+  isActive  Boolean   @default(true)
+  items     Item[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, code])
+  @@map("units")
+}
+
+model ItemGroup {
+  id        String      @id @default(uuid())
+  companyId String
+  company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    ItemGroup?  @relation("ItemGroupHierarchy", fields: [parentId], references: [id])
+  children  ItemGroup[] @relation("ItemGroupHierarchy")
+  name      String
+  code      String
+  isActive  Boolean     @default(true)
+  items     Item[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, code])
+  @@map("item_groups")
+}
+
+model Item {
+  id          String          @id @default(uuid())
+  companyId   String
+  company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  groupId     String?
+  group       ItemGroup?      @relation(fields: [groupId], references: [id])
+  unitId      String
+  unit        Unit            @relation(fields: [unitId], references: [id])
+  name        String
+  code        String
+  type        String          @default("GOODS")
+  hsnSac      String?
+  sku         String?
+  barcode     String?
+  description String?
+  standardRate Decimal        @default(0) @db.Decimal(18, 2)
+  reorderLevel Decimal        @default(0) @db.Decimal(18, 3)
+  trackBatch  Boolean         @default(false)
+  trackSerial Boolean         @default(false)
+  isActive    Boolean         @default(true)
+  stockMovements StockMovement[]
+  purchaseLines PurchaseInvoiceLine[]
+  salesLines SalesInvoiceLine[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("items")
+}
+
+model Customer {
+  id        String    @id @default(uuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ledgerId  String
+  ledger    Ledger    @relation(fields: [ledgerId], references: [id])
+  name      String
+  code      String
+  gstin     String?
+  pan       String?
+  email     String?
+  phone     String?
+  addressLine1 String?
+  city      String?
+  state     String?
+  pincode   String?
+  isActive  Boolean   @default(true)
+  invoices  SalesInvoice[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, code])
+  @@unique([companyId, ledgerId])
+  @@map("customers")
+}
+
+model SalesInvoice {
+  id          String      @id @default(uuid())
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  branchId    String?
+  warehouseId String
+  warehouse   Warehouse   @relation(fields: [warehouseId], references: [id])
+  invoiceNo   String
+  invoiceDate DateTime
+  status      SalesStatus @default(POSTED)
+  subtotal    Decimal     @default(0) @db.Decimal(18, 2)
+  taxAmount   Decimal     @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal     @default(0) @db.Decimal(18, 2)
+  narration   String?
+  accountingVoucherId String?
+  lines       SalesInvoiceLine[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([companyId, invoiceNo])
+  @@index([companyId, invoiceDate])
+  @@map("sales_invoices")
+}
+
+model SalesInvoiceLine {
+  id        String       @id @default(uuid())
+  invoiceId String
+  invoice   SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      Item         @relation(fields: [itemId], references: [id])
+  quantity  Decimal      @db.Decimal(18, 3)
+  rate      Decimal      @db.Decimal(18, 2)
+  amount    Decimal      @db.Decimal(18, 2)
+  taxRate   Decimal      @default(0) @db.Decimal(5, 2)
+  taxAmount Decimal      @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal    @default(0) @db.Decimal(18, 2)
+  createdAt DateTime     @default(now())
+
+  @@index([invoiceId])
+  @@index([itemId])
+  @@map("sales_invoice_lines")
+}
+
+model StockMovement {
+  id          String            @id @default(uuid())
+  itemId      String
+  item        Item              @relation(fields: [itemId], references: [id])
+  warehouseId String
+  warehouse   Warehouse         @relation(fields: [warehouseId], references: [id])
+  type        StockMovementType
+  quantity    Decimal           @db.Decimal(18, 3)
+  rate        Decimal           @default(0) @db.Decimal(18, 2)
+  amount      Decimal           @default(0) @db.Decimal(18, 2)
+  movementDate DateTime
+  referenceType String?
+  referenceNo   String?
+  narration     String?
+  createdAt     DateTime        @default(now())
+
+  @@index([itemId, movementDate])
+  @@index([warehouseId, movementDate])
+  @@map("stock_movements")
+}
+
+model Vendor {
+  id        String    @id @default(uuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ledgerId  String
+  ledger    Ledger    @relation(fields: [ledgerId], references: [id])
+  name      String
+  code      String
+  gstin     String?
+  pan       String?
+  email     String?
+  phone     String?
+  addressLine1 String?
+  city      String?
+  state     String?
+  pincode   String?
+  isActive  Boolean   @default(true)
+  invoices  PurchaseInvoice[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, code])
+  @@unique([companyId, ledgerId])
+  @@map("vendors")
+}
+
+model PurchaseInvoice {
+  id          String         @id @default(uuid())
+  companyId   String
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorId    String
+  vendor      Vendor         @relation(fields: [vendorId], references: [id])
+  branchId    String?
+  warehouseId String
+  warehouse   Warehouse      @relation(fields: [warehouseId], references: [id])
+  invoiceNo   String
+  invoiceDate DateTime
+  supplierInvoiceNo String?
+  status      PurchaseStatus @default(POSTED)
+  subtotal    Decimal        @default(0) @db.Decimal(18, 2)
+  taxAmount   Decimal        @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal        @default(0) @db.Decimal(18, 2)
+  narration   String?
+  accountingVoucherId String?
+  lines       PurchaseInvoiceLine[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([companyId, invoiceNo])
+  @@index([companyId, invoiceDate])
+  @@map("purchase_invoices")
+}
+
+model PurchaseInvoiceLine {
+  id        String          @id @default(uuid())
+  invoiceId String
+  invoice   PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      Item            @relation(fields: [itemId], references: [id])
+  quantity  Decimal         @db.Decimal(18, 3)
+  rate      Decimal         @db.Decimal(18, 2)
+  amount    Decimal         @db.Decimal(18, 2)
+  taxRate   Decimal         @default(0) @db.Decimal(5, 2)
+  taxAmount Decimal         @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal       @default(0) @db.Decimal(18, 2)
+  createdAt DateTime        @default(now())
+
+  @@index([invoiceId])
+  @@index([itemId])
+  @@map("purchase_invoice_lines")
+}
+
+model VoucherSeries {
+  id        String    @id @default(uuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  module    String
+  prefix    String
+  nextNumber Int      @default(1)
+  padding   Int       @default(5)
+  suffix    String?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, module, prefix])
+  @@map("voucher_series")
+}
+
+model User {
+  id           String       @id @default(uuid())
+  tenantId     String
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String
+  fullName     String
+  passwordHash String
+  status       UserStatus   @default(ACTIVE)
+  roles        UserRole[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  @@unique([tenantId, email])
+  @@index([tenantId, status])
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  tenantId    String?
+  tenant      Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  code        String
+  description String?
+  isSystem    Boolean          @default(false)
+  users       UserRole[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isSystem])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  module      String
+  action      String
+  code        String           @unique
+  name        String
+  description String?
+  scope       PermissionScope  @default(TENANT)
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([module, action])
+  @@map("permissions")
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
