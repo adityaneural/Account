@@ -11,7 +11,7 @@ import { UpdateItemGroupDto } from './dto/update-item-group.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { UpdateUnitDto } from './dto/update-unit.dto';
 
-const positiveMovement = new Set<StockMovementType>(['OPENING', 'PURCHASE', 'ADJUSTMENT_IN', 'TRANSFER_IN', 'PRODUCTION_IN']);
+const positiveMovement = new Set<StockMovementType>(['OPENING', 'PURCHASE', 'SALES_RETURN', 'ADJUSTMENT_IN', 'TRANSFER_IN', 'PRODUCTION_IN']);
 
 @Injectable()
 export class InventoryService {

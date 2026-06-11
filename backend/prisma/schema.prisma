@@ -54,7 +54,9 @@ enum LedgerType {
 enum StockMovementType {
   OPENING
   PURCHASE
+  PURCHASE_RETURN
   SALE
+  SALES_RETURN
   ADJUSTMENT_IN
   ADJUSTMENT_OUT
   TRANSFER_IN
@@ -120,8 +122,10 @@ model Company {
   items              Item[]
   vendors            Vendor[]
   purchaseInvoices   PurchaseInvoice[]
+  purchaseReturns    PurchaseReturn[]
   customers          Customer[]
   salesInvoices      SalesInvoice[]
+  salesReturns       SalesReturn[]
   taxRates           TaxRate[]
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
@@ -306,7 +310,9 @@ model Warehouse {
   deletedAt    DateTime?
   stockMovements StockMovement[]
   purchaseInvoices PurchaseInvoice[]
+  purchaseReturns PurchaseReturn[]
   salesInvoices SalesInvoice[]
+  salesReturns SalesReturn[]
 
   @@unique([branchId, code])
   @@index([branchId, isActive])
@@ -371,7 +377,9 @@ model Item {
   isActive    Boolean         @default(true)
   stockMovements StockMovement[]
   purchaseLines PurchaseInvoiceLine[]
+  purchaseReturnLines PurchaseReturnLine[]
   salesLines SalesInvoiceLine[]
+  salesReturnLines SalesReturnLine[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   deletedAt   DateTime?
@@ -399,6 +407,7 @@ model Customer {
   pincode   String?
   isActive  Boolean   @default(true)
   invoices  SalesInvoice[]
+  returns   SalesReturn[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -454,6 +463,52 @@ model SalesInvoiceLine {
   @@map("sales_invoice_lines")
 }
 
+model SalesReturn {
+  id          String      @id @default(uuid())
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  branchId    String?
+  warehouseId String
+  warehouse   Warehouse   @relation(fields: [warehouseId], references: [id])
+  returnNo    String
+  returnDate  DateTime
+  status      SalesStatus @default(POSTED)
+  subtotal    Decimal     @default(0) @db.Decimal(18, 2)
+  taxAmount   Decimal     @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal     @default(0) @db.Decimal(18, 2)
+  narration   String?
+  accountingVoucherId String?
+  lines       SalesReturnLine[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([companyId, returnNo])
+  @@index([companyId, returnDate])
+  @@map("sales_returns")
+}
+
+model SalesReturnLine {
+  id        String       @id @default(uuid())
+  returnId  String
+  return    SalesReturn  @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      Item         @relation(fields: [itemId], references: [id])
+  quantity  Decimal      @db.Decimal(18, 3)
+  rate      Decimal      @db.Decimal(18, 2)
+  amount    Decimal      @db.Decimal(18, 2)
+  taxRate   Decimal      @default(0) @db.Decimal(5, 2)
+  taxAmount Decimal      @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal    @default(0) @db.Decimal(18, 2)
+  createdAt DateTime     @default(now())
+
+  @@index([returnId])
+  @@index([itemId])
+  @@map("sales_return_lines")
+}
+
 model StockMovement {
   id          String            @id @default(uuid())
   itemId      String
@@ -493,6 +548,7 @@ model Vendor {
   pincode   String?
   isActive  Boolean   @default(true)
   invoices  PurchaseInvoice[]
+  returns   PurchaseReturn[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -547,6 +603,53 @@ model PurchaseInvoiceLine {
   @@index([invoiceId])
   @@index([itemId])
   @@map("purchase_invoice_lines")
+}
+
+model PurchaseReturn {
+  id          String         @id @default(uuid())
+  companyId   String
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorId    String
+  vendor      Vendor         @relation(fields: [vendorId], references: [id])
+  branchId    String?
+  warehouseId String
+  warehouse   Warehouse      @relation(fields: [warehouseId], references: [id])
+  returnNo    String
+  returnDate  DateTime
+  supplierReturnNo String?
+  status      PurchaseStatus @default(POSTED)
+  subtotal    Decimal        @default(0) @db.Decimal(18, 2)
+  taxAmount   Decimal        @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal        @default(0) @db.Decimal(18, 2)
+  narration   String?
+  accountingVoucherId String?
+  lines       PurchaseReturnLine[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([companyId, returnNo])
+  @@index([companyId, returnDate])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnLine {
+  id        String          @id @default(uuid())
+  returnId  String
+  return    PurchaseReturn  @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      Item            @relation(fields: [itemId], references: [id])
+  quantity  Decimal         @db.Decimal(18, 3)
+  rate      Decimal         @db.Decimal(18, 2)
+  amount    Decimal         @db.Decimal(18, 2)
+  taxRate   Decimal         @default(0) @db.Decimal(5, 2)
+  taxAmount Decimal         @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal       @default(0) @db.Decimal(18, 2)
+  createdAt DateTime        @default(now())
+
+  @@index([returnId])
+  @@index([itemId])
+  @@map("purchase_return_lines")
 }
 
 model VoucherSeries {

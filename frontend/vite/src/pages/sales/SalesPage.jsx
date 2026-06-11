@@ -40,6 +40,7 @@ export default function SalesPage() {
   const [tab, setTab] = useState(0);
   const [customers, setCustomers] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [returns, setReturns] = useState([]);
   const [items, setItems] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [outstanding, setOutstanding] = useState([]);
@@ -47,6 +48,7 @@ export default function SalesPage() {
   const [error, setError] = useState('');
   const [customerOpen, setCustomerOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
   const [customerForm, setCustomerForm] = useState({ name: '', code: '', gstin: '', phone: '', email: '', state: '' });
   const [invoiceForm, setInvoiceForm] = useState({
     customerId: '',
@@ -56,19 +58,29 @@ export default function SalesPage() {
     narration: '',
     lines: [{ itemId: '', quantity: 1, rate: 0, taxRate: 0 }]
   });
+  const [returnForm, setReturnForm] = useState({
+    customerId: '',
+    warehouseId: '',
+    returnNo: `SR-${Date.now().toString().slice(-5)}`,
+    returnDate: new Date().toISOString().slice(0, 10),
+    narration: '',
+    lines: [{ itemId: '', quantity: 1, rate: 0, taxRate: 0 }]
+  });
 
   const warehouses = companies.flatMap((company) => company.branches.flatMap((branch) => branch.warehouses.map((warehouse) => ({ ...warehouse, branch, company }))));
 
   async function loadData() {
-    const [customerData, invoiceData, itemData, companyData, outstandingData] = await Promise.all([
+    const [customerData, invoiceData, returnData, itemData, companyData, outstandingData] = await Promise.all([
       api('/sales/customers'),
       api('/sales/invoices'),
+      api('/sales/returns'),
       api('/inventory/items'),
       api('/companies'),
       api('/sales/reports/customer-outstanding')
     ]);
     setCustomers(customerData);
     setInvoices(invoiceData);
+    setReturns(returnData);
     setItems(itemData);
     setCompanies(companyData);
     setOutstanding(outstandingData);
@@ -95,6 +107,10 @@ export default function SalesPage() {
     setInvoiceForm((current) => ({ ...current, lines: current.lines.map((line, i) => (i === index ? { ...line, [key]: value } : line)) }));
   }
 
+  function updateReturnLine(index, key, value) {
+    setReturnForm((current) => ({ ...current, lines: current.lines.map((line, i) => (i === index ? { ...line, [key]: value } : line)) }));
+  }
+
   return (
     <Grid container spacing={2.75}>
       {(message || error) && <Grid size={12}><Alert severity={error ? 'error' : 'success'} onClose={() => (error ? setError('') : setMessage(''))}>{error || message}</Alert></Grid>}
@@ -103,13 +119,15 @@ export default function SalesPage() {
           <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Tab label="Customers" />
             <Tab label="Sales Invoices" />
+            <Tab label="Sales Returns" />
             <Tab label="Sales Register" />
             <Tab label="Customer Outstanding" />
           </Tabs>
           {tab === 0 && <GridPanel label="Create Customer" onCreate={() => setCustomerOpen(true)}><Table size="small"><TableHead><TableRow><TableCell>Customer</TableCell><TableCell>Ledger</TableCell><TableCell>GSTIN</TableCell><TableCell>Phone</TableCell><TableCell>Status</TableCell></TableRow></TableHead><TableBody>{customers.map((customer) => <TableRow key={customer.id}><TableCell>{customer.name}<br />{customer.code}</TableCell><TableCell>{customer.ledger.name}</TableCell><TableCell>{customer.gstin || '-'}</TableCell><TableCell>{customer.phone || '-'}</TableCell><TableCell>{customer.isActive ? 'Active' : 'Inactive'}</TableCell></TableRow>)}</TableBody></Table></GridPanel>}
           {tab === 1 && <GridPanel label="Create Sales Invoice" onCreate={() => { setInvoiceForm({ customerId: customers[0]?.id || '', warehouseId: warehouses[0]?.id || '', invoiceNo: `SI-${Date.now().toString().slice(-5)}`, invoiceDate: new Date().toISOString().slice(0, 10), narration: '', lines: [{ itemId: items[0]?.id || '', quantity: 1, rate: Number(items[0]?.standardRate || 0), taxRate: 0 }] }); setInvoiceOpen(true); }}><InvoiceTable invoices={invoices} /></GridPanel>}
-          {tab === 2 && <Box sx={{ p: 2.5 }}><InvoiceTable invoices={invoices} /></Box>}
-          {tab === 3 && <Box sx={{ p: 2.5 }}><Table size="small"><TableHead><TableRow><TableCell>Customer</TableCell><TableCell align="right">Total Receivable</TableCell></TableRow></TableHead><TableBody>{outstanding.map((row) => <TableRow key={row.customerId}><TableCell>{row.customerName}</TableCell><TableCell align="right">{row.totalReceivable.toFixed(2)}</TableCell></TableRow>)}</TableBody></Table></Box>}
+          {tab === 2 && <GridPanel label="Create Sales Return" onCreate={() => { setReturnForm({ customerId: customers[0]?.id || '', warehouseId: warehouses[0]?.id || '', returnNo: `SR-${Date.now().toString().slice(-5)}`, returnDate: new Date().toISOString().slice(0, 10), narration: '', lines: [{ itemId: items[0]?.id || '', quantity: 1, rate: Number(items[0]?.standardRate || 0), taxRate: 0 }] }); setReturnOpen(true); }}><ReturnTable returns={returns} /></GridPanel>}
+          {tab === 3 && <Box sx={{ p: 2.5 }}><InvoiceTable invoices={invoices} /></Box>}
+          {tab === 4 && <Box sx={{ p: 2.5 }}><Table size="small"><TableHead><TableRow><TableCell>Customer</TableCell><TableCell align="right">Total Receivable</TableCell></TableRow></TableHead><TableBody>{outstanding.map((row) => <TableRow key={row.customerId}><TableCell>{row.customerName}</TableCell><TableCell align="right">{row.totalReceivable.toFixed(2)}</TableCell></TableRow>)}</TableBody></Table></Box>}
         </Box>
       </Grid>
 
@@ -133,6 +151,18 @@ export default function SalesPage() {
           <DialogActions><Button onClick={() => setInvoiceOpen(false)}>Cancel</Button><Button type="submit" variant="contained">Post Invoice</Button></DialogActions>
         </Box>
       </Dialog>
+
+      <Dialog open={returnOpen} onClose={() => setReturnOpen(false)} fullWidth maxWidth="md">
+        <Box component="form" onSubmit={(event) => { event.preventDefault(); save(() => api('/sales/returns', { method: 'POST', body: JSON.stringify({ ...returnForm, lines: returnForm.lines.map((line) => ({ ...line, quantity: Number(line.quantity), rate: Number(line.rate), taxRate: Number(line.taxRate || 0) })) }) }), 'Sales return posted', () => setReturnOpen(false)); }}>
+          <DialogTitle>Create Sales Return</DialogTitle>
+          <DialogContent><Stack spacing={2} sx={{ mt: 1 }}>
+            <Grid container spacing={2}><Grid size={{ xs: 12, md: 6 }}><TextField select fullWidth label="Customer" value={returnForm.customerId} onChange={(event) => setReturnForm({ ...returnForm, customerId: event.target.value })}>{customers.map((customer) => <MenuItem key={customer.id} value={customer.id}>{customer.name}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 12, md: 6 }}><TextField select fullWidth label="Warehouse" value={returnForm.warehouseId} onChange={(event) => setReturnForm({ ...returnForm, warehouseId: event.target.value })}>{warehouses.map((warehouse) => <MenuItem key={warehouse.id} value={warehouse.id}>{warehouse.branch.name} - {warehouse.name}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Return No" value={returnForm.returnNo} onChange={(event) => setReturnForm({ ...returnForm, returnNo: event.target.value })} /></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth type="date" label="Return Date" value={returnForm.returnDate} onChange={(event) => setReturnForm({ ...returnForm, returnDate: event.target.value })} InputLabelProps={{ shrink: true }} /></Grid></Grid>
+            {returnForm.lines.map((line, index) => <Grid container spacing={2} key={index}><Grid size={{ xs: 12, md: 5 }}><TextField select fullWidth label="Item" value={line.itemId} onChange={(event) => updateReturnLine(index, 'itemId', event.target.value)}>{items.map((item) => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="number" label="Qty" value={line.quantity} onChange={(event) => updateReturnLine(index, 'quantity', event.target.value)} /></Grid><Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="number" label="Rate" value={line.rate} onChange={(event) => updateReturnLine(index, 'rate', event.target.value)} /></Grid><Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="number" label="Tax %" value={line.taxRate} onChange={(event) => updateReturnLine(index, 'taxRate', event.target.value)} /></Grid></Grid>)}
+            <Button onClick={() => setReturnForm((current) => ({ ...current, lines: [...current.lines, { itemId: items[0]?.id || '', quantity: 1, rate: 0, taxRate: 0 }] }))}>Add Line</Button>
+          </Stack></DialogContent>
+          <DialogActions><Button onClick={() => setReturnOpen(false)}>Cancel</Button><Button type="submit" variant="contained">Post Return</Button></DialogActions>
+        </Box>
+      </Dialog>
     </Grid>
   );
 }
@@ -143,6 +173,10 @@ function GridPanel({ label, onCreate, children }) {
 
 function InvoiceTable({ invoices }) {
   return <Table size="small"><TableHead><TableRow><TableCell>Date</TableCell><TableCell>Invoice</TableCell><TableCell>Customer</TableCell><TableCell>Warehouse</TableCell><TableCell>Items</TableCell><TableCell align="right">Total</TableCell></TableRow></TableHead><TableBody>{invoices.map((invoice) => <TableRow key={invoice.id}><TableCell>{invoice.invoiceDate.slice(0, 10)}</TableCell><TableCell>{invoice.invoiceNo}</TableCell><TableCell>{invoice.customer.name}</TableCell><TableCell>{invoice.warehouse.name}</TableCell><TableCell>{invoice.lines.map((line) => `${line.item.name} ${Number(line.quantity).toFixed(3)} ${line.item.unit.code}`).join(', ')}</TableCell><TableCell align="right">{Number(invoice.totalAmount).toFixed(2)}</TableCell></TableRow>)}</TableBody></Table>;
+}
+
+function ReturnTable({ returns }) {
+  return <Table size="small"><TableHead><TableRow><TableCell>Date</TableCell><TableCell>Return</TableCell><TableCell>Customer</TableCell><TableCell>Warehouse</TableCell><TableCell>Items</TableCell><TableCell align="right">Total</TableCell></TableRow></TableHead><TableBody>{returns.map((salesReturn) => <TableRow key={salesReturn.id}><TableCell>{salesReturn.returnDate.slice(0, 10)}</TableCell><TableCell>{salesReturn.returnNo}</TableCell><TableCell>{salesReturn.customer.name}</TableCell><TableCell>{salesReturn.warehouse.name}</TableCell><TableCell>{salesReturn.lines.map((line) => `${line.item.name} ${Number(line.quantity).toFixed(3)} ${line.item.unit.code}`).join(', ')}</TableCell><TableCell align="right">{Number(salesReturn.totalAmount).toFixed(2)}</TableCell></TableRow>)}</TableBody></Table>;
 }
 
 function SimpleDialog({ open, title, onClose, onSubmit, children }) {

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { CreatePurchaseInvoiceDto } from './dto/create-purchase-invoice.dto';
+import { CreatePurchaseReturnDto } from './dto/create-purchase-return.dto';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { PurchaseQueryDto } from './dto/purchase-query.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
@@ -36,6 +37,16 @@ export class PurchaseController {
   @Post('invoices')
   createInvoice(@Query('companyId') companyId: string | undefined, @Body() dto: CreatePurchaseInvoiceDto) {
     return this.purchaseService.createInvoice(companyId, dto);
+  }
+
+  @Get('returns')
+  listReturns(@Query() query: PurchaseQueryDto) {
+    return this.purchaseService.listReturns(query);
+  }
+
+  @Post('returns')
+  createReturn(@Query('companyId') companyId: string | undefined, @Body() dto: CreatePurchaseReturnDto) {
+    return this.purchaseService.createReturn(companyId, dto);
   }
 
   @Get('reports/vendor-outstanding')

@@ -3,6 +3,7 @@ import { DebitCredit, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { IdentityService } from '../identity/identity.service';
 import { CreatePurchaseInvoiceDto } from './dto/create-purchase-invoice.dto';
+import { CreatePurchaseReturnDto } from './dto/create-purchase-return.dto';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { PurchaseQueryDto } from './dto/purchase-query.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
@@ -152,12 +153,109 @@ export class PurchaseService {
     });
   }
 
+  async createReturn(companyId: string | undefined, dto: CreatePurchaseReturnDto) {
+    const company = await this.resolveCompany(companyId);
+    const vendor = await this.findVendor(dto.vendorId);
+    const warehouse = await this.findWarehouse(dto.warehouseId);
+    const inventoryLedger = await this.ensureInventoryLedger(company.id);
+
+    const itemIds = dto.lines.map((line) => line.itemId);
+    const items = await this.prisma.item.findMany({ where: { id: { in: itemIds }, companyId: company.id, deletedAt: null } });
+    if (items.length !== new Set(itemIds).size) throw new BadRequestException('One or more items are invalid');
+
+    const lines = dto.lines.map((line) => {
+      const amount = line.quantity * line.rate;
+      const taxAmount = amount * ((line.taxRate ?? 0) / 100);
+      return { ...line, amount, taxAmount, totalAmount: amount + taxAmount };
+    });
+    const subtotal = lines.reduce((sum, line) => sum + line.amount, 0);
+    const taxAmount = lines.reduce((sum, line) => sum + line.taxAmount, 0);
+    const totalAmount = subtotal + taxAmount;
+
+    return this.prisma.$transaction(async (tx) => {
+      const voucher = await tx.voucher.create({
+        data: {
+          companyId: company.id,
+          branchId: dto.branchId,
+          voucherType: 'purchase_return',
+          voucherNo: dto.returnNo,
+          voucherDate: new Date(dto.returnDate),
+          narration: dto.narration || `Purchase return ${dto.returnNo}`,
+          lines: {
+            create: [
+              { ledgerId: vendor.ledgerId, type: DebitCredit.DEBIT, amount: new Prisma.Decimal(totalAmount), narration: 'Vendor debit' },
+              { ledgerId: inventoryLedger.id, type: DebitCredit.CREDIT, amount: new Prisma.Decimal(subtotal), narration: 'Inventory returned' },
+              ...(taxAmount > 0 ? [{ ledgerId: inventoryLedger.id, type: DebitCredit.CREDIT, amount: new Prisma.Decimal(taxAmount), narration: 'Input tax reversal placeholder' }] : []),
+            ],
+          },
+        },
+      });
+
+      const purchaseReturn = await tx.purchaseReturn.create({
+        data: {
+          companyId: company.id,
+          vendorId: vendor.id,
+          branchId: dto.branchId,
+          warehouseId: warehouse.id,
+          returnNo: dto.returnNo,
+          returnDate: new Date(dto.returnDate),
+          supplierReturnNo: dto.supplierReturnNo,
+          subtotal: new Prisma.Decimal(subtotal),
+          taxAmount: new Prisma.Decimal(taxAmount),
+          totalAmount: new Prisma.Decimal(totalAmount),
+          narration: dto.narration,
+          accountingVoucherId: voucher.id,
+          lines: {
+            create: lines.map((line) => ({
+              itemId: line.itemId,
+              quantity: new Prisma.Decimal(line.quantity),
+              rate: new Prisma.Decimal(line.rate),
+              amount: new Prisma.Decimal(line.amount),
+              taxRate: new Prisma.Decimal(line.taxRate ?? 0),
+              taxAmount: new Prisma.Decimal(line.taxAmount),
+              totalAmount: new Prisma.Decimal(line.totalAmount),
+            })),
+          },
+        },
+        include: { vendor: true, warehouse: true, lines: { include: { item: { include: { unit: true } } } } },
+      });
+
+      await tx.stockMovement.createMany({
+        data: lines.map((line) => ({
+          itemId: line.itemId,
+          warehouseId: warehouse.id,
+          type: 'PURCHASE_RETURN',
+          quantity: new Prisma.Decimal(line.quantity),
+          rate: new Prisma.Decimal(line.rate),
+          amount: new Prisma.Decimal(line.amount),
+          movementDate: new Date(dto.returnDate),
+          referenceType: 'purchase_return',
+          referenceNo: dto.returnNo,
+          narration: dto.narration,
+        })),
+      });
+
+      return purchaseReturn;
+    });
+  }
+
+  async listReturns(query: PurchaseQueryDto) {
+    const company = await this.resolveCompany(query.companyId);
+    return this.prisma.purchaseReturn.findMany({
+      where: { companyId: company.id, vendorId: query.vendorId, deletedAt: null },
+      include: { vendor: true, warehouse: true, lines: { include: { item: { include: { unit: true } } } } },
+      orderBy: { returnDate: 'desc' },
+    });
+  }
+
   async vendorOutstanding(query: PurchaseQueryDto) {
     const vendors = await this.listVendors(query.companyId);
     const invoices = await this.listInvoices(query);
+    const returns = await this.listReturns(query);
     return vendors.map((vendor) => {
       const total = invoices.filter((invoice) => invoice.vendorId === vendor.id).reduce((sum, invoice) => sum + Number(invoice.totalAmount), 0);
-      return { vendorId: vendor.id, vendorName: vendor.name, totalPayable: Number(total.toFixed(2)) };
+      const returned = returns.filter((purchaseReturn) => purchaseReturn.vendorId === vendor.id).reduce((sum, purchaseReturn) => sum + Number(purchaseReturn.totalAmount), 0);
+      return { vendorId: vendor.id, vendorName: vendor.name, totalPayable: Number((total - returned).toFixed(2)) };
     });
   }
 
